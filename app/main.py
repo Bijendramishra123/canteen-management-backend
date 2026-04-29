@@ -1,29 +1,42 @@
 # -*- coding: utf-8 -*-
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from pymongo import MongoClient
+import os
 import uvicorn
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://backend:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-SECRET_KEY = "your-secret-key-here-change-in-production"
+SECRET_KEY = "mysecretkey"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# MongoDB Connection - Use environment variable or default to mongodb service name
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017")
+client = MongoClient(MONGO_URI)
+db = client["canteenDB"]
+users_collection = db["users"]
+foods_collection = db["foods"]
+orders_collection = db["orders"]
+
+print(f"Connected to MongoDB at: {MONGO_URI}")
+
+# Models
 class UserCreate(BaseModel):
     name: str
     email: EmailStr
@@ -63,120 +76,142 @@ class OrderCreate(BaseModel):
 class StatusUpdate(BaseModel):
     status: str
 
-# Database
-users_db = [
-    {"id": "1", "name": "Admin User", "email": "admin@example.com", "role": "admin", "hashed_password": pwd_context.hash("admin123")},
-    {"id": "2", "name": "Test User", "email": "test@example.com", "role": "user", "hashed_password": pwd_context.hash("test123")},
-    {"id": "3", "name": "Bijendra Mishra", "email": "bijendramishra2002@gmail.com", "role": "user", "hashed_password": pwd_context.hash("bijendra123")}
-]
-
-foods_db = [
-    {"id": 1, "name": "Fried Rice", "price": 249, "category": "main", "description": "Delicious fried rice with vegetables", "image": "/fried-rice.jpeg", "availability": True},
-    {"id": 2, "name": "Paneer Butter Masala", "price": 299, "category": "main", "description": "Creamy paneer curry", "image": "/paneer-butter-masala.jpeg", "availability": True},
-    {"id": 3, "name": "Coca Cola", "price": 49, "category": "beverages", "description": "Chilled soft drink", "image": "/coca-cola.jpeg", "availability": True},
-    {"id": 4, "name": "Cheeseburger", "price": 179, "category": "main", "description": "Juicy cheeseburger", "image": "/cheeseburger.jpeg", "availability": True},
-    {"id": 5, "name": "Pizza Slice", "price": 199, "category": "main", "description": "Cheesy pizza slice", "image": "/pizza-slice.jpeg", "availability": True},
-    {"id": 6, "name": "Food Platter", "price": 399, "category": "main", "description": "Complete meal platter", "image": "/food-platter.jpeg", "availability": True},
-    {"id": 7, "name": "Aloo Paratha", "price": 89, "category": "main", "description": "Stuffed potato paratha", "image": "/aloo-paratha.jpeg", "availability": True},
-    {"id": 8, "name": "Sprite", "price": 49, "category": "beverages", "description": "Refreshing drink", "image": "/sprite-logo.jpeg", "availability": True},
-]
-
-orders_db = []
-next_food_id = 9
-next_order_id = 1
-
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
+# ============ AUTH ROUTES ============
 @app.post("/api/auth/register")
 async def register(user: UserCreate):
-    for existing_user in users_db:
-        if existing_user["email"].lower() == user.email.lower():
-            raise HTTPException(status_code=400, detail="Email already exists")
-    new_id = str(len(users_db) + 1)
-    new_user = {"id": new_id, "name": user.name, "email": user.email.lower(), "role": "user", "hashed_password": pwd_context.hash(user.password)}
-    users_db.append(new_user)
+    existing_user = users_collection.find_one({"email": user.email.lower()})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already exists")
+    
+    new_user = {
+        "name": user.name,
+        "email": user.email.lower(),
+        "role": "user",
+        "hashed_password": pwd_context.hash(user.password)
+    }
+    result = users_collection.insert_one(new_user)
     access_token = create_access_token(data={"sub": user.email.lower()})
-    return {"message": "Registration successful", "access_token": access_token, "token_type": "bearer", "user": {"id": new_user["id"], "name": new_user["name"], "email": new_user["email"], "role": new_user["role"]}}
+    return {
+        "message": "Registration successful",
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(result.inserted_id),
+            "name": user.name,
+            "email": user.email,
+            "role": "user"
+        }
+    }
 
 @app.post("/api/auth/login")
 async def login(user: UserLogin):
-    db_user = None
-    for u in users_db:
-        if u["email"].lower() == user.email.lower():
-            db_user = u
-            break
+    db_user = users_collection.find_one({"email": user.email.lower()})
     if not db_user:
         raise HTTPException(status_code=401, detail="User not found")
     if not pwd_context.verify(user.password, db_user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Invalid password")
     access_token = create_access_token(data={"sub": db_user["email"]})
-    return {"message": "Login successful", "access_token": access_token, "token_type": "bearer", "user": {"id": db_user["id"], "name": db_user["name"], "email": db_user["email"], "role": db_user["role"]}}
+    return {
+        "message": "Login successful",
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(db_user["_id"]),
+            "name": db_user["name"],
+            "email": db_user["email"],
+            "role": db_user["role"]
+        }
+    }
 
+# ============ FOOD ROUTES ============
 @app.get("/api/foods")
-async def get_foods(search: Optional[str] = Query(None, description="Search by food name")):
-    if search:
-        filtered_foods = [food for food in foods_db if search.lower() in food["name"].lower()]
-        return filtered_foods
-    return foods_db
+async def get_foods():
+    foods = []
+    for food in foods_collection.find():
+        food["_id"] = str(food["_id"])
+        foods.append(food)
+    return foods
 
 @app.post("/api/foods")
 async def create_food(food: FoodCreate):
-    global next_food_id
-    new_food = {"id": next_food_id, "name": food.name, "price": food.price, "category": food.category, "description": food.description or "", "image": food.image or "", "availability": food.availability}
-    foods_db.append(new_food)
-    next_food_id += 1
-    return new_food
+    food_dict = food.dict()
+    last_food = foods_collection.find_one(sort=[("id", -1)])
+    new_id = (last_food["id"] + 1) if last_food else 1
+    food_dict["id"] = new_id
+    result = foods_collection.insert_one(food_dict)
+    food_dict["_id"] = str(result.inserted_id)
+    return food_dict
 
-@app.patch("/api/foods/{food_id}/availability")
-async def toggle_availability(food_id: int, update: FoodUpdate):
-    for food in foods_db:
-        if food["id"] == food_id:
-            food["availability"] = update.availability
-            return {"message": f"Availability updated to {update.availability}", "food": food}
-    raise HTTPException(status_code=404, detail="Food not found")
+@app.put("/api/foods/{food_id}")
+async def update_food(food_id: int, food: FoodCreate):
+    existing = foods_collection.find_one({"id": food_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Food not found")
+    
+    update_data = {
+        "name": food.name,
+        "price": food.price,
+        "category": food.category,
+        "description": food.description,
+        "image": food.image,
+        "availability": food.availability
+    }
+    foods_collection.update_one({"id": food_id}, {"$set": update_data})
+    updated_food = foods_collection.find_one({"id": food_id})
+    updated_food["_id"] = str(updated_food["_id"])
+    return updated_food
 
 @app.delete("/api/foods/{food_id}")
 async def delete_food(food_id: int):
-    global foods_db
-    foods_db = [f for f in foods_db if f["id"] != food_id]
+    result = foods_collection.delete_one({"id": food_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Food not found")
     return {"message": "Food deleted successfully"}
 
+@app.patch("/api/foods/{food_id}/availability")
+async def toggle_availability(food_id: int, update: FoodUpdate):
+    result = foods_collection.update_one({"id": food_id}, {"$set": {"availability": update.availability}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Food not found")
+    return {"message": "Availability updated"}
+
+# ============ ORDER ROUTES ============
 @app.post("/api/orders")
 async def create_order(order: OrderCreate):
-    global next_order_id
-    new_order = {
-        "id": next_order_id,
-        "customer_name": order.customer_name,
-        "customer_phone": order.customer_phone,
-        "customer_email": order.customer_email,
-        "items": [item.dict() for item in order.items],
-        "total_amount": order.total_amount,
-        "tip_amount": order.tip_amount,
-        "number_of_people": order.number_of_people,
-        "special_instructions": order.special_instructions,
-        "status": "pending",
-        "created_at": datetime.utcnow().isoformat()
-    }
-    orders_db.append(new_order)
-    next_order_id += 1
-    return new_order
+    last_order = orders_collection.find_one(sort=[("id", -1)])
+    new_id = (last_order["id"] + 1) if last_order else 1
+    order_dict = order.dict()
+    order_dict["id"] = new_id
+    order_dict["status"] = "pending"
+    order_dict["created_at"] = datetime.now().isoformat()
+    result = orders_collection.insert_one(order_dict)
+    order_dict["_id"] = str(result.inserted_id)
+    return order_dict
 
 @app.get("/api/orders")
 async def get_orders():
-    return orders_db
+    orders = []
+    for order in orders_collection.find():
+        order["_id"] = str(order["_id"])
+        orders.append(order)
+    return orders
 
 @app.patch("/api/orders/{order_id}/status")
 async def update_order_status(order_id: int, status_update: StatusUpdate):
-    for order in orders_db:
-        if order["id"] == order_id:
-            order["status"] = status_update.status
-            return {"message": "Status updated", "order": order}
-    raise HTTPException(status_code=404, detail="Order not found")
+    result = orders_collection.update_one({"id": order_id}, {"$set": {"status": status_update.status}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {"message": "Status updated"}
 
 @app.get("/")
 def root():
-    return {"message": "Canteen Backend Running"}
+    return {"message": "Canteen Backend Running with MongoDB"}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
