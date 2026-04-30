@@ -12,29 +12,36 @@ import uvicorn
 
 app = FastAPI()
 
+# CORS middleware - Allow all origins for deployment
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://backend:8000"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "https://canteen-management-frontend.vercel.app",
+        "https://canteen-management-frontend-eight.vercel.app",
+        "*"  # Allow all for testing
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-SECRET_KEY = "mysecretkey"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+SECRET_KEY = os.getenv("SECRET_KEY", "mysecretkey")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# MongoDB Connection - Use environment variable or default to mongodb service name
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017")
+# MongoDB Connection
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 client = MongoClient(MONGO_URI)
 db = client["canteenDB"]
 users_collection = db["users"]
 foods_collection = db["foods"]
 orders_collection = db["orders"]
 
-print(f"Connected to MongoDB at: {MONGO_URI}")
+print(f"Connected to MongoDB")
 
 # Models
 class UserCreate(BaseModel):
@@ -82,7 +89,6 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-# ============ AUTH ROUTES ============
 @app.post("/api/auth/register")
 async def register(user: UserCreate):
     existing_user = users_collection.find_one({"email": user.email.lower()})
@@ -129,7 +135,6 @@ async def login(user: UserLogin):
         }
     }
 
-# ============ FOOD ROUTES ============
 @app.get("/api/foods")
 async def get_foods():
     foods = []
@@ -153,7 +158,6 @@ async def update_food(food_id: int, food: FoodCreate):
     existing = foods_collection.find_one({"id": food_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Food not found")
-    
     update_data = {
         "name": food.name,
         "price": food.price,
@@ -181,7 +185,6 @@ async def toggle_availability(food_id: int, update: FoodUpdate):
         raise HTTPException(status_code=404, detail="Food not found")
     return {"message": "Availability updated"}
 
-# ============ ORDER ROUTES ============
 @app.post("/api/orders")
 async def create_order(order: OrderCreate):
     last_order = orders_collection.find_one(sort=[("id", -1)])
