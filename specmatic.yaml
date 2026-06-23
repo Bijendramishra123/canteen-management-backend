@@ -1,0 +1,38 @@
+# specmatic.yaml
+project:
+  name: "Canteen Management System API"
+  version: "2.0.0"
+  description: "Contract testing with Specmatic"
+
+contracts:
+  - path: "openapi.json"
+    type: "openapi"
+
+tests:
+  default:
+    base_url: "http://localhost:8000"
+    examples: "examples/"
+
+resiliency:
+  enabled: true
+  validation:
+    - type: "openapi"
+      schema: "openapi.json"
+  probes:
+    - path: "/"
+      method: "GET"
+      interval: 30
+      timeout: 5
+    - path: "/api/foods"
+      method: "GET"
+      interval: 60
+      timeout: 10
+
+logging:
+  level: "info"
+  format: "json"
+  output: "logs/contract-test.log"
+
+report:
+  format: ["html", "json", "junit"]
+  output: "reports/"
