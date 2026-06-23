@@ -83,6 +83,28 @@ class OrderCreate(BaseModel):
 class StatusUpdate(BaseModel):
     status: str
 
+class FoodResponse(BaseModel):
+    id: int
+    name: str
+    price: float
+    category: str
+    image: Optional[str] = None
+    description: Optional[str] = None
+    availability: bool = True
+
+class OrderResponse(BaseModel):
+    id: int
+    items: List[OrderItem]
+    total_amount: float
+    customer_name: str
+    customer_phone: str
+    customer_email: str
+    special_instructions: Optional[str] = None
+    tip_amount: Optional[float] = 0
+    number_of_people: Optional[int] = 1
+    status: str
+    created_at: str
+
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -135,7 +157,7 @@ async def login(user: UserLogin):
         }
     }
 
-@app.get("/api/foods")
+@app.get("/api/foods", response_model=List[FoodResponse])
 async def get_foods():
     foods = []
     for food in foods_collection.find():
@@ -143,7 +165,7 @@ async def get_foods():
         foods.append(food)
     return foods
 
-@app.post("/api/foods")
+@app.post("/api/foods", response_model=FoodResponse)
 async def create_food(food: FoodCreate):
     food_dict = food.dict()
     last_food = foods_collection.find_one(sort=[("id", -1)])
@@ -185,7 +207,7 @@ async def toggle_availability(food_id: int, update: FoodUpdate):
         raise HTTPException(status_code=404, detail="Food not found")
     return {"message": "Availability updated"}
 
-@app.post("/api/orders")
+@app.post("/api/orders", response_model=OrderResponse)
 async def create_order(order: OrderCreate):
     last_order = orders_collection.find_one(sort=[("id", -1)])
     new_id = (last_order["id"] + 1) if last_order else 1
@@ -197,7 +219,7 @@ async def create_order(order: OrderCreate):
     order_dict["_id"] = str(result.inserted_id)
     return order_dict
 
-@app.get("/api/orders")
+@app.get("/api/orders", response_model=List[OrderResponse])
 async def get_orders():
     orders = []
     for order in orders_collection.find():
