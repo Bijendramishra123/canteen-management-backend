@@ -1,0 +1,8 @@
+{
+    "name": "Margherita Pizza",
+    "price": 12.99,
+    "category": "Pizza",
+    "image": "https://example.com/pizza.jpg",
+    "description": "Classic pizza with tomato sauce and mozzarella",
+    "availability": true
+}
