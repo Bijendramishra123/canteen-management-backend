@@ -13,25 +13,32 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Build Docker Image
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
       run: |
-        docker build -t canteen-api .
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
     - name: Start MongoDB
       run: |
         docker run -d --name mongodb -p 27017:27017 mongo:6
 
-    - name: Start API Container
+    - name: Start API
       run: |
-        docker run -d --name api -p 8000:8000 --link mongodb:mongodb canteen-api
-
-    - name: Wait for API
-      run: |
-        sleep 20
+        python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+        sleep 15
 
     - name: Check API Health
       run: |
-        curl -f http://localhost:8000/ || (docker logs api && exit 1)
+        curl -f http://localhost:8000/ || exit 1
+
+    - name: Pull Specmatic Image
+      run: |
+        docker pull specmatic/specmatic
 
     - name: Run Specmatic Contract Tests
       run: |
