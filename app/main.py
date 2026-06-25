@@ -24,6 +24,7 @@ from passlib.context import CryptContext
 from pymongo import MongoClient
 import os
 import uvicorn
+import traceback
 
 # ============================================================================
 # Application Configuration
@@ -159,8 +160,12 @@ def get_next_sequence(collection, field: str = "id") -> int:
     """
     Get the next sequential ID for a collection.
     """
-    last_doc = collection.find_one(sort=[(field, -1)])
-    return (last_doc[field] + 1) if last_doc else 1
+    try:
+        last_doc = collection.find_one(sort=[(field, -1)])
+        return (last_doc[field] + 1) if last_doc else 1
+    except Exception as e:
+        print(f"❌ Error in get_next_sequence: {e}")
+        return 1
 
 # ============================================================================
 # Pydantic Models - Request/Response Contracts
@@ -538,10 +543,10 @@ async def get_foods():
     """Get all food items with normalized data."""
     try:
         foods = list(foods_collection.find())
-        # ✅ FIX: Return Pydantic models, not dictionaries
         return [FoodResponse(**item) for item in convert_mongo_documents(foods)]
     except Exception as e:
-        print(f"Error in get_foods: {e}")
+        print(f"❌ Error in get_foods: {e}")
+        traceback.print_exc()
         return []
 
 
@@ -576,17 +581,26 @@ async def get_foods():
 )
 async def create_food(food: FoodCreate):
     """Create a new food item."""
-    food_dict = food.dict()
-    
-    # Generate sequential ID
-    food_dict["id"] = get_next_sequence(foods_collection)
-    
-    # Insert into database
-    result = foods_collection.insert_one(food_dict)
-    
-    # ✅ FIX: Return Pydantic model, not dictionary
-    created_food = convert_mongo_document(food_dict)
-    return FoodResponse(**created_food)
+    try:
+        food_dict = food.dict()
+        
+        # Generate sequential ID
+        food_dict["id"] = get_next_sequence(foods_collection)
+        print(f"🔍 Generated ID: {food_dict['id']}")
+        
+        # Insert into database
+        result = foods_collection.insert_one(food_dict)
+        print(f"✅ Inserted with _id: {result.inserted_id}")
+        
+        # ✅ FIX: Use convert_mongo_document to remove _id
+        cleaned_food = convert_mongo_document(food_dict)
+        print(f"✅ Cleaned: {cleaned_food}")
+        
+        return FoodResponse(**cleaned_food)
+    except Exception as e:
+        print(f"❌ ERROR in create_food: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put(
@@ -785,18 +799,23 @@ async def toggle_availability(food_id: int, update: FoodUpdate):
 )
 async def create_order(order: OrderCreate):
     """Create a new order."""
-    # Generate sequential ID
-    order_dict = order.dict()
-    order_dict["id"] = get_next_sequence(orders_collection)
-    order_dict["status"] = "pending"
-    order_dict["created_at"] = datetime.now().isoformat()
-    
-    # Insert into database
-    result = orders_collection.insert_one(order_dict)
-    
-    # ✅ FIX: Return Pydantic model, not dictionary
-    created_order = convert_mongo_document(order_dict)
-    return OrderResponse(**created_order)
+    try:
+        order_dict = order.dict()
+        order_dict["id"] = get_next_sequence(orders_collection)
+        order_dict["status"] = "pending"
+        order_dict["created_at"] = datetime.now().isoformat()
+        
+        result = orders_collection.insert_one(order_dict)
+        
+        # Remove _id
+        if "_id" in order_dict:
+            del order_dict["_id"]
+        
+        return OrderResponse(**order_dict)
+    except Exception as e:
+        print(f"❌ Error in create_order: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get(
@@ -841,10 +860,10 @@ async def get_orders():
     """Get all orders with normalized data."""
     try:
         orders = list(orders_collection.find())
-        # ✅ FIX: Return Pydantic models, not dictionaries
         return [OrderResponse(**item) for item in convert_mongo_documents(orders)]
     except Exception as e:
-        print(f"Error in get_orders: {e}")
+        print(f"❌ Error in get_orders: {e}")
+        traceback.print_exc()
         return []
 
 
