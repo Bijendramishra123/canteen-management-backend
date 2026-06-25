@@ -36,13 +36,9 @@ jobs:
       run: |
         curl -f http://localhost:8000/ || exit 1
 
-    - name: Pull Specmatic Image
-      run: |
-        docker pull specmatic/specmatic
-
     - name: Run Specmatic Contract Tests
       run: |
-        docker run --rm -v $(pwd):/work specmatic/specmatic test /work/openapi.json --host localhost --port 8000
+        docker run --rm -v $(pwd):/work specmatic/specmatic test /work/openapi.json --host host.docker.internal --port 8000
 
     - name: Upload Reports
       uses: actions/upload-artifact@v4
