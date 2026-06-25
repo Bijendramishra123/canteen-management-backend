@@ -36,6 +36,10 @@ jobs:
       run: |
         curl -f http://localhost:8000/ || exit 1
 
+    - name: Seed Test Data
+      run: |
+        python seed_data.py
+
     - name: Run Specmatic Contract Tests
       run: |
         docker run --rm --network host -v $(pwd):/work specmatic/specmatic test /work/openapi.json --host localhost --port 8000
