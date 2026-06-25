@@ -13,7 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Build API Image
+    - name: Build Docker Image
       run: |
         docker build -t canteen-api .
 
@@ -21,9 +21,9 @@ jobs:
       run: |
         docker run -d --name mongodb -p 27017:27017 mongo:6
 
-    - name: Start API
+    - name: Start API Container
       run: |
-        docker run -d --name api -p 8000:8000 canteen-api
+        docker run -d --name api -p 8000:8000 --link mongodb:mongodb canteen-api
 
     - name: Wait for API
       run: |
@@ -31,7 +31,7 @@ jobs:
 
     - name: Check API Health
       run: |
-        curl -f http://localhost:8000/ || exit 1
+        curl -f http://localhost:8000/ || (docker logs api && exit 1)
 
     - name: Run Specmatic Contract Tests
       run: |
