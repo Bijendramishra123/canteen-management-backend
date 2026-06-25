@@ -1,3 +1,4 @@
+cat > README.md << 'EOF'
 # Canteen Management Backend
 
 FastAPI backend for Canteen Management System with MongoDB and Specmatic Contract Testing.
@@ -107,18 +108,57 @@ Reports are generated in the reports/ folder:
 - Failed: 25
 - Success Rate: 89.6%
 
-## Repository Structure
+## CI/CD Integration
 
-canteen-backend/
-├── app/
-│   └── main.py          # Main API code
-├── examples/            # External examples (8 files)
-├── reports/             # Test reports
-├── openapi.json         # OpenAPI specification
-├── specmatic.yaml       # Resiliency configuration
-├── seed_data.py         # Test data seeder
-├── requirements.txt     # Dependencies
-└── README.md            # This file
+### GitHub Actions Workflow
 
-## License
-MIT
+This project uses GitHub Actions for continuous integration. The workflow automatically runs Specmatic contract tests on every push and pull request to the main branch.
+
+**Workflow File:** `.github/workflows/contract-tests.yml`
+
+**What it does:**
+1. Starts MongoDB container
+2. Starts the API container
+3. Waits for API to be ready
+4. Runs Specmatic contract tests
+5. Uploads test reports as artifacts
+
+### Workflow Steps
+
+```yaml
+name: Contract Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Start MongoDB
+      run: |
+        docker run -d --name mongodb -p 27017:27017 mongo:6
+
+    - name: Start API
+      run: |
+        docker run -d --name api -p 8000:8000 canteen-docker-compose-backend:latest
+
+    - name: Wait for API
+      run: |
+        sleep 10
+
+    - name: Run Specmatic Contract Tests
+      run: |
+        docker run --rm -v $(pwd):/work specmatic/specmatic test /work/openapi.json --host localhost --port 8000
+
+    - name: Upload Reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: specmatic-reports
+        path: reports/
