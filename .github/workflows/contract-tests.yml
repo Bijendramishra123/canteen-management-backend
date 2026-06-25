@@ -1,0 +1,36 @@
+name: Contract Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Start MongoDB
+      run: |
+        docker run -d --name mongodb -p 27017:27017 mongo:6
+
+    - name: Start API
+      run: |
+        docker run -d --name api -p 8000:8000 canteen-docker-compose-backend:latest
+
+    - name: Wait for API
+      run: |
+        sleep 10
+
+    - name: Run Specmatic Contract Tests
+      run: |
+        docker run --rm -v $(pwd):/work specmatic/specmatic test /work/openapi.json --host localhost --port 8000
+
+    - name: Upload Reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: specmatic-reports
+        path: reports/
